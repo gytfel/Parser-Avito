@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "avito-flip"
+version = "0.1.0"
+description = "Поиск товаров на Авито для перепродажи: оценка рынка, дефектов и прибыли"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.28",
+    "beautifulsoup4>=4.11",
+    "lxml>=4.9",
+    "PyYAML>=6.0",
+    "Jinja2>=3.1",
+    "rich>=13.0",
+]
+
+[project.optional-dependencies]
+antibot = ["curl_cffi>=0.6"]
+browser = ["playwright>=1.40"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+avito-flip = "avito_flip.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["avito_flip*"]
+
+[tool.setuptools.package-data]
+avito_flip = ["default_config.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

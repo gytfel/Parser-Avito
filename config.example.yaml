@@ -1,0 +1,43 @@
+# Скопируйте этот файл в config.yaml и меняйте только то, что нужно.
+# Всё, чего здесь нет, берётся из avito_flip/default_config.yaml.
+
+region: moskva                 # где покупаете (часть адреса Авито: moskva, sankt-peterburg, ekaterinburg, all)
+market_regions: []             # где ещё смотреть цены — например, если продаёте в другом городе: [sankt-peterburg]
+pages: 3                       # страниц выдачи (~50 объявлений на страницу)
+details_top: 8                 # сколько лучших вариантов открыть целиком (полное описание + характеристики)
+
+economics:
+  min_profit: 3000             # от какой прибыли считать вариант интересным, ₽
+  min_roi: 0.15                # и от какой доходности (0.15 = 15% на вложенное)
+  fixed_costs: 500             # ваши расходы на одну сделку: дорога, время, упаковка, поднятие объявления
+  fee_percent: 0.0             # комиссия с продажи, если продаёте через доставку за свой счёт (0.05 = 5%)
+  sell_quantile: 0.4           # 0.5 — продавать по медиане рынка (дольше), 0.3 — быстрее, но дешевле
+  buy_haggle: 0.05             # сколько обычно удаётся выторговать при покупке
+
+network:
+  delay_min: 5                 # пауза между запросами, сек — не уменьшайте сильно, иначе Авито заблокирует IP
+  delay_max: 10
+  proxy: null                  # http://user:pass@host:port
+  browser: false               # true — через Chromium (pip install playwright && playwright install chromium)
+
+sources:
+  youla:
+    enabled: true
+    city: moskva
+  csv:
+    files: []                  # например [data/ozon_used.csv] — цены с других площадок
+
+telegram:                      # для команды watch --telegram
+  token: ""                    # токен бота от @BotFather
+  chat_id: ""                  # ваш chat_id (можно узнать у @userinfobot)
+
+# Своя категория (пример):
+# categories:
+#   bikes:
+#     title: Велосипеды
+#     profile: generic         # phones, tablets, laptops, gpu, consoles, audio, watches, generic
+#     avito_path: velosipedy   # часть адреса категории на Авито
+#     queries: [stels navigator, merida big nine]
+#     similarity_threshold: 0.55
+#     exclude:
+#       - '^(?:велошлем|замок|насос|колесо|покрышк|камер)'

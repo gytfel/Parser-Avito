@@ -1,0 +1,143 @@
+# Настройки по умолчанию. Не редактируйте этот файл — скопируйте config.example.yaml
+# в config.yaml в папке проекта и меняйте там только нужное: значения сливаются.
+
+region: moskva            # где покупаем: часть URL Авито (moskva, sankt-peterburg, ekaterinburg, all — вся Россия)
+market_regions: []        # дополнительные регионы для оценки рынка/продажи, например [sankt-peterburg]
+pages: 3                  # страниц выдачи Авито в регионе покупки (~50 объявлений на страницу)
+market_pages: 2           # страниц в каждом дополнительном регионе
+sort: date                # date — сначала свежие (выгодные уходят быстро), default, price_asc, price_desc
+details_top: 8            # сколько лучших кандидатов открыть целиком (полное описание и характеристики)
+buy_sources: [avito, youla]   # где ищем, что купить; рынок оценивается по всем включённым площадкам
+reports_dir: reports
+
+sources:
+  avito:
+    enabled: true
+  youla:                  # Юла — вторая крупная барахолка, используется и для поиска, и для оценки рынка
+    enabled: true
+    city: moskva
+    pages: 1
+    price_divisor: auto   # Юла отдаёт цены в копейках; auto — определить по формату
+  csv:                    # свои данные с других площадок (Ozon б/у, Я.Маркет, барахолки в Telegram, Drom...)
+    enabled: true
+    files: []             # пути к CSV: title;price;url;description;source;condition
+
+economics:
+  sell_quantile: 0.4      # цена продажи = 40-й процентиль аналогов (чуть ниже медианы, продать за 1–2 недели)
+  sell_haggle: 0.05       # уступка покупателю при продаже
+  buy_haggle: 0.05        # скидка, которую реально выторговать, если в объявлении «торг» (половина — если не сказано)
+  fixed_costs: 300        # дорога, время, упаковка, поднятие объявления, ₽
+  fee_percent: 0.0        # комиссия с продажи (Авито Доставка за счёт продавца, платное размещение) — доля
+  min_profit: 2000        # минимальная прибыль для отметки «выгодно», ₽
+  min_roi: 0.10           # минимальная доходность на вложенное
+  min_comparables: 4      # минимум аналогов для уверенной оценки
+  similarity_threshold: 0.7
+  suspicious_ratio: 0.5   # дешевле половины рынка без указанных дефектов — подозрение на обман
+
+network:
+  delay_min: 4            # пауза между запросами, сек (меньше — быстрее получите блок по IP)
+  delay_max: 9
+  timeout: 30
+  retries: 2
+  proxy: null             # http://user:pass@host:port — свой прокси, если Авито блокирует IP
+  impersonate: true       # использовать curl_cffi (TLS-отпечаток Chrome), если установлен
+  browser: false          # грузить страницы через Playwright/Chromium (pip install playwright)
+  headless: true
+  cache_ttl_minutes: 60   # повторный запуск в течение часа не нагружает сайт
+  cache_dir: .cache
+  cookies: null           # строка Cookie из браузера (DevTools → Network), если Авито просит капчу
+
+telegram:                 # для режима watch: уведомления о выгодных объявлениях
+  token: ""
+  chat_id: ""
+
+# Слова в заголовке, при которых объявление вообще не рассматривается (регулярные выражения
+# по нормализованному заголовку: нижний регистр, «ё» → «е», «айфон» → «iphone»).
+global_exclude:
+  - '\b(?:куплю|скупка|скупаю|выкуп\w*|аренд\w*|прокат|сдам|обменяю)\b'
+
+categories:
+  phones:
+    title: Смартфоны
+    profile: phones
+    avito_path: telefony
+    queries: [iphone 13, iphone 14, iphone 15 pro, samsung galaxy s23]
+    exclude:
+      - '^(?:чехол|стекло|защитн|пленк|кабель|зарядк|зарядн|адаптер|держател|дисплей|экран|модуль|аккумулятор|акб|корпус|шлейф|плата|камера|задн\w* крышк|крышк|коробк|муляж|наклейк|ремеш|лоток|динамик|запчаст)'
+      - '\b(?:для|на) (?:iphone|samsung|galaxy|xiaomi|redmi|honor|huawei|poco|pixel)'
+      - '^(?:наушник|airpods|apple watch|ipad|macbook)'
+
+  tablets:
+    title: Планшеты
+    profile: tablets
+    avito_path: planshety_i_elektronnye_knigi
+    queries: [ipad air, ipad pro, galaxy tab s8]
+    exclude:
+      - '^(?:чехол|стекло|защитн|пленк|клавиатур|стилус|pencil|кабель|зарядк|дисплей|экран|корпус)'
+      - '\b(?:для|на) (?:ipad|планшет|galaxy tab)'
+
+  laptops:
+    title: Ноутбуки
+    profile: laptops
+    avito_path: noutbuki
+    queries: [macbook air m1, macbook pro m1, rtx 3060 ноутбук]
+    exclude:
+      - '^(?:зарядк|блок питания|адаптер|клавиатур|матриц|аккумулятор|корпус|петл|шлейф|сумка|рюкзак|подставк|чехол|кулер|материнск|запчаст)'
+      - '\b(?:для|на) (?:ноутбук|macbook)'
+
+  gpu:
+    title: Видеокарты
+    profile: gpu
+    avito_path: tovary_dlya_kompyutera
+    queries: [rtx 3060, rtx 3070, rtx 4060, rtx 4070]
+    similarity_threshold: 0.65
+    exclude:
+      - '^(?:ноутбук|компьютер|пк\b|системн\w* блок|игровой пк|игровой компьютер|сборк|кулер|вентилятор|райзер|водоблок|бокс|кабель|переходник|материнск|монитор)'
+      - '\bпк\b'
+      - '\bсистемн\w* блок'
+      - '\bноутбук'
+
+  consoles:
+    title: Игровые приставки
+    profile: consoles
+    avito_path: igry_pristavki_i_programmy
+    queries: [ps5, ps5 slim, nintendo switch oled, steam deck]
+    exclude:
+      - '^(?:игра|игры|диск|геймпад|джойстик|dualsense|подставк|чехол|кейс|зарядн|кабель|аккаунт|подписк|наклейк|накладк|стик)'
+      - '\bдля (?:ps\d|playstation|xbox|switch|nintendo|steam deck)'
+      - '\bаккаунт'
+      - '\bподписк'
+
+  audio:
+    title: Наушники и колонки
+    profile: audio
+    avito_path: audio_i_video
+    queries: [airpods pro 2, sony wh-1000xm5, яндекс станция]
+    exclude:
+      - '^(?:чехол|кейс|амбушюр|кабель|зарядн|подушк)'
+      - '\bдля (?:airpods|наушник)'
+      - '\bкейс от\b'
+      - '\b(?:левый|правый) (?:наушник|airpods)'
+
+  watches:
+    title: Смарт-часы
+    profile: watches
+    avito_path: chasy_i_ukrasheniya
+    queries: [apple watch series 8, apple watch ultra]
+    exclude:
+      - '^(?:ремеш|браслет|чехол|стекло|пленк|зарядк|кабель)'
+      - '\bдля (?:apple watch|часов|galaxy watch)'
+
+  photo:
+    title: Фототехника
+    profile: generic
+    avito_path: fototehnika
+    queries: [sony a7 iii, canon eos r]
+    similarity_threshold: 0.55
+
+  any:
+    title: Все категории
+    profile: generic
+    avito_path: ""
+    queries: []
+    similarity_threshold: 0.55
