@@ -214,3 +214,42 @@ def test_cli_returns_exit_blocked(monkeypatch, tmp_path, capsys):
     assert cli.main(["scan", "-c", "phones"]) == EXIT_BLOCKED
     # после блокировки остальные запросы категории не отправляются
     assert capsys.readouterr().err.count("заблокировано") == 1
+
+
+def test_enable_browser_mode_keeps_user_settings(tmp_path):
+    from avito_flip.config import enable_browser_mode
+
+    new = tmp_path / "new.yaml"
+    enable_browser_mode(new)
+    assert load_settings(new).network.browser is True
+
+    existing = tmp_path / "config.yaml"
+    existing.write_text("region: kazan  # мой город\nnetwork:\n    delay_min: 6\n    browser: false  # пока нет\n"
+                        "economics:\n  min_profit: 3000\n", encoding="utf-8")
+    enable_browser_mode(existing)
+    text = existing.read_text(encoding="utf-8")
+    assert "# мой город" in text and "browser: true  # пока нет" in text
+    s = load_settings(existing)
+    assert (s.region, s.network.delay_min, s.network.browser, s.economics.min_profit) == ("kazan", 6, True, 3000)
+
+    no_key = tmp_path / "no_key.yaml"
+    no_key.write_text("network:\n  delay_min: 7\nregion: kazan\n", encoding="utf-8")
+    enable_browser_mode(no_key)
+    s = load_settings(no_key)
+    assert (s.network.delay_min, s.network.browser, s.region) == (7, True, "kazan")
+
+    no_network = tmp_path / "no_network.yaml"
+    no_network.write_text("region: kazan\n", encoding="utf-8")
+    enable_browser_mode(no_network)
+    assert load_settings(no_network).network.browser is True
+
+
+def test_enable_browser_mode_refuses_unusual_yaml(tmp_path):
+    from avito_flip.config import enable_browser_mode
+
+    flow = tmp_path / "config.yaml"
+    original = "network: {delay_min: 6}\n"
+    flow.write_text(original, encoding="utf-8")
+    with pytest.raises(ConfigError):
+        enable_browser_mode(flow)
+    assert flow.read_text(encoding="utf-8") == original  # файл возвращён как был

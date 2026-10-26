@@ -165,7 +165,15 @@ class _BrowserBackend:
         self.timeout = net.timeout * 1000
         profile = Path(net.cache_dir) / "browser-profile"
         profile.mkdir(parents=True, exist_ok=True)
-        opts: dict = {"headless": net.headless, "locale": "ru-RU", "viewport": {"width": 1366, "height": 900}}
+        opts: dict = {
+            "headless": net.headless,
+            "locale": "ru-RU",
+            "viewport": {"width": 1366, "height": 900},
+            # Без этих флагов Chrome помечает себя как «управляемый автоматически» (navigator.webdriver),
+            # и сайт отвечает «Доступ ограничен», хотя в обычном браузере всё открывается.
+            "ignore_default_args": ["--enable-automation"],
+            "args": ["--disable-blink-features=AutomationControlled"],
+        }
         if net.proxy:
             opts["proxy"] = {"server": net.proxy}
         channels = [net.browser_channel] if net.browser_channel else list(self.CHANNELS)
@@ -189,6 +197,7 @@ class _BrowserBackend:
                 f'Microsoft Edge не установлены, выполните:\n  "{sys.executable}" -m playwright install chromium\n'
                 + "\n".join(errors)
             )
+        self._context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         self._page = self._context.pages[0] if self._context.pages else self._context.new_page()
 
     def _open(self, url: str) -> tuple[int, str]:

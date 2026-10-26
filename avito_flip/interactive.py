@@ -17,7 +17,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from .config import Settings, load_settings
+from .config import Settings, enable_browser_mode, load_settings
 from .fetcher import EXIT_BLOCKED, playwright_hint
 
 REGIONS = [
@@ -106,9 +106,11 @@ def install_playwright(menu: Menu) -> bool:
 
 class Menu:
     def __init__(self, settings: Settings, run: Callable[[list[str]], int], ask: Callable[[str], str] = input,
-                 say: Callable[[str], None] = print, installer: Callable[[Menu], bool] = install_playwright):
+                 say: Callable[[str], None] = print, installer: Callable[[Menu], bool] = install_playwright,
+                 config_path: str | Path = "config.yaml"):
         self.s, self.run, self._ask, self.say = settings, run, ask, say
         self.install = installer
+        self.config_path = config_path
         # После удачного поиска через браузер остальные действия сеанса тоже идут через него.
         self.browser = settings.network.browser
 
@@ -216,8 +218,15 @@ class Menu:
         code = self._run(argv)
         if code != EXIT_BLOCKED:
             self.browser = True
-            self.say("Дальше в этом сеансе поиск идёт через браузер. Чтобы так было всегда, "
-                     "впишите в config.yaml:\n  network:\n    browser: true")
+            if self.yes("Через браузер получилось. Всегда искать так (сохранить в config.yaml)?"):
+                try:
+                    saved = enable_browser_mode(self.config_path)
+                    self.say(f"Сохранено в {saved}: дальше поиск сразу идёт через браузер.")
+                except (OSError, ValueError) as e:  # ConfigError и ошибки YAML
+                    self.say(f"Не удалось сохранить ({e}). Впишите в config.yaml вручную:\n"
+                             "  network:\n    browser: true")
+            else:
+                self.say("Хорошо: до выхода из меню поиск идёт через браузер.")
         else:
             self.say(
                 "\nАвито не пустил и настоящий браузер. Если проверку «я не робот» в окне пройти не удалось "
@@ -322,4 +331,4 @@ def run_menu(run: Callable[[list[str]], int], config: str | None = None) -> int:
     except (OSError, ValueError) as e:
         print(f"Ошибка настроек: {e}")
         return 2
-    return Menu(settings, run).loop()
+    return Menu(settings, run, config_path=config or "config.yaml").loop()

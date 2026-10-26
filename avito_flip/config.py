@@ -145,3 +145,49 @@ def settings_from_dict(data: dict) -> Settings:
     s = _build(Settings, data)
     s.categories, s.sources, s.economics, s.network = categories, sources, economics, network
     return s
+
+
+def enable_browser_mode(path: str | Path = "config.yaml") -> Path:
+    """Вписать network.browser: true в пользовательский config.yaml, сохранив остальное и комментарии."""
+    p = Path(path)
+    original = p.read_text(encoding="utf-8") if p.exists() else ""
+    before = yaml.safe_load(original) or {} if original.strip() else {}
+    if not isinstance(before, dict):
+        raise ConfigError(f"{p}: ожидался словарь настроек")
+    old_network = before.get("network") or {}
+    if old_network.get("browser") is True:
+        return p
+
+    lines = original.splitlines()
+    network_at = None
+    done = False
+    for i, line in enumerate(lines):
+        if re.match(r"^network:\s*(#.*)?$", line):
+            network_at = i
+            continue
+        if network_at is not None and re.match(r"^\S", line):
+            break  # начался следующий раздел
+        m = network_at is not None and re.match(r"^(\s+)browser:\s*[^#]*?(\s*#.*)?$", line)
+        if m:
+            lines[i] = f"{m.group(1)}browser: true{m.group(2) or ''}"
+            done = True
+            break
+    if not done and network_at is not None:
+        nxt = lines[network_at + 1] if network_at + 1 < len(lines) else ""
+        indent = re.match(r"^(\s+)\S", nxt).group(1) if re.match(r"^(\s+)\S", nxt) else "  "
+        lines.insert(network_at + 1, f"{indent}browser: true")
+    elif not done:
+        lines += ([""] if lines else ["# Свои настройки парсера; все параметры — в config.example.yaml"])
+        lines += ["network:", "  browser: true"]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    # Проверяем, что изменилось ровно одно значение; иначе возвращаем файл как был.
+    after = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    expected = {**before, "network": {**old_network, "browser": True}}
+    if after != expected:
+        if original:
+            p.write_text(original, encoding="utf-8")
+        else:
+            p.unlink()
+        raise ConfigError(f"не получилось аккуратно изменить {p}")
+    return p
