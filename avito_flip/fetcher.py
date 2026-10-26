@@ -32,7 +32,7 @@ BLOCK_HINT = (
     "Сайт временно ограничил доступ (HTTP 403/429 или капча). Что можно сделать:\n"
     "  • подождать 15–30 минут и запустить снова (страницы из кэша повторно не скачиваются);\n"
     "  • увеличить паузу между запросами: network.delay_min / delay_max в config.yaml;\n"
-    "  • включить браузерный режим: --browser (pip install playwright && playwright install chromium);\n"
+    "  • включить браузерный режим: --browser (нужен Playwright, как установить — README, «Запуск командой»);\n"
     "  • указать прокси (--proxy http://user:pass@host:port) или Cookie из своего браузера (network.cookies)."
 )
 
@@ -110,7 +110,8 @@ class _BrowserBackend:
             from playwright.sync_api import sync_playwright
         except ImportError as e:
             raise FetchError(
-                "Браузерный режим требует Playwright: pip install playwright && playwright install chromium"
+                "Браузерный режим требует Playwright: python -m pip install playwright && "
+                "python -m playwright install chromium (тем же Python, что запускает парсер; см. README)"
             ) from e
         self._pw = sync_playwright().start()
         launch = {"headless": net.headless}

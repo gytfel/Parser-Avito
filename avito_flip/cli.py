@@ -1,4 +1,4 @@
-"""Командная строка: python -m avito_flip <команда> ..."""
+"""Командная строка: python -m avito_flip <команда> ...; без команды открывается меню."""
 
 from __future__ import annotations
 
@@ -15,13 +15,13 @@ from pathlib import Path
 from .config import ConfigError, Settings, SourceConfig, load_settings
 from .fetcher import FetchError
 from .report import make_console, print_result, save_csv, save_html, save_json
+from .scanner import Scanner
 
 try:
     from rich.markup import escape
 except ImportError:  # pragma: no cover
     def escape(text: str) -> str:
         return text
-from .scanner import Scanner
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -50,7 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="avito_flip",
         description="Поиск товаров на Авито для перепродажи: сравнение с рынком (Авито, Юла, свои CSV), "
-                    "учёт дефектов и характеристик, оценка цены продажи и прибыли.",
+                    "учёт дефектов и характеристик, оценка цены продажи и прибыли. "
+                    "Без команды открывается меню.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -269,6 +270,12 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.reconfigure(encoding="utf-8")
         except (OSError, ValueError):
             pass
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        from .interactive import run_menu
+
+        return run_menu(run=main)
     a = build_parser().parse_args(argv)
     try:
         s = _apply_overrides(load_settings(a.config), a)

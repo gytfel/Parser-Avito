@@ -15,46 +15,69 @@
 Результат выводится в терминал и сохраняется в HTML-отчёт: таблицу можно сортировать, у каждого лота
 есть расчёт, найденные дефекты с цитатами и ссылки на аналоги.
 
-## Установка
+## Запуск
 
-Нужен Python 3.10 или новее.
+Нужен Python 3.10 или новее ([python.org](https://www.python.org/downloads/); на Windows при установке
+отметьте «Add python.exe to PATH»). Скачайте проект (`git clone https://github.com/gytfel/Parser-Avito.git`
+или кнопка Code → Download ZIP) и запустите:
+
+- **Windows** — двойной клик по `start.bat` (или `start.bat` в терминале в папке проекта);
+- **macOS / Linux** — в терминале в папке проекта: `./start.sh`.
+
+При первом запуске скрипт сам создаст окружение в папке `.venv` и поставит зависимости (пара минут),
+дальше запускается сразу. Откроется меню, где всё выбирается цифрами:
+
+```
+=== Поиск товаров на Авито для перепродажи ===
+Что сделать?
+  1. Найти выгодные объявления для перепродажи
+  2. Оценить объявление по ссылке
+  3. Следить за новыми объявлениями (проверка каждые N минут)
+  4. Демо на вымышленных данных (без интернета)
+  5. Выход
+Номер [1]:
+```
+
+Дальше меню спросит категорию, что искать (Enter — запросы категории по умолчанию), бюджет, город
+и минимальную прибыль. Значение в квадратных скобках подставляется, если просто нажать Enter.
+Сумму можно писать как `40000`, `40 000` или `40к`. После поиска откроется HTML-отчёт, а меню
+покажет команду, которой тот же поиск запускается сразу, без вопросов.
+
+## Запуск командой
+
+Те же действия можно запускать одной командой — удобно, когда параметры уже понятны. Вместо
+`start.bat` на macOS/Linux пишите `./start.sh`; если зависимости поставлены вручную
+(`pip install -r requirements.txt`), можно и `python -m avito_flip`.
 
 ```bash
-git clone https://github.com/gytfel/Parser-Avito.git
-cd Parser-Avito
-pip install -r requirements.txt
+# Посмотреть, как это работает, на вымышленных данных (без интернета)
+start.bat demo --open
+
+# Список категорий и запросов по умолчанию
+start.bat categories
+
+# Найти выгодные iPhone 13 в Москве с бюджетом до 40 000 ₽
+start.bat scan -c phones -q "iphone 13" --max-price 40000 --open
+
+# Все запросы категории из настроек (iphone 13, iphone 14, ...)
+start.bat scan -c phones
+
+# Купить в Москве, оценить рынок ещё и по Петербургу
+start.bat scan -c consoles -q "ps5" --market-region sankt-peterburg
+
+# Оценить конкретное объявление по ссылке
+start.bat analyze "https://www.avito.ru/moskva/telefony/iphone_13_128_gb_1234567890"
+
+# Следить за новыми объявлениями каждые 15 минут и присылать выгодные в Telegram
+start.bat watch -c gpu -q "rtx 3060" --max-price 25000 --every 15 --telegram
 ```
 
 Если Авито часто блокирует запросы, можно включить загрузку через настоящий браузер (необязательно):
 
 ```bash
-pip install playwright
-playwright install chromium
-```
-
-## Быстрый старт
-
-```bash
-# 1. Посмотреть, как это работает, на вымышленных данных (без интернета)
-python -m avito_flip demo --open
-
-# 2. Список категорий и запросов по умолчанию
-python -m avito_flip categories
-
-# 3. Найти выгодные iPhone 13 в Москве с бюджетом до 40 000 ₽
-python -m avito_flip scan -c phones -q "iphone 13" --max-price 40000 --open
-
-# 4. Все запросы категории из настроек (iphone 13, iphone 14, ...)
-python -m avito_flip scan -c phones
-
-# 5. Купить в Москве, оценить рынок ещё и по Петербургу
-python -m avito_flip scan -c consoles -q "ps5" --market-region sankt-peterburg
-
-# 6. Оценить конкретное объявление по ссылке
-python -m avito_flip analyze "https://www.avito.ru/moskva/telefony/iphone_13_128_gb_1234567890"
-
-# 7. Следить за новыми объявлениями каждые 15 минут и присылать выгодные в Telegram
-python -m avito_flip watch -c gpu -q "rtx 3060" --max-price 25000 --every 15 --telegram
+.venv\Scripts\python -m pip install playwright      # macOS/Linux: .venv/bin/python -m pip install playwright
+.venv\Scripts\python -m playwright install chromium # macOS/Linux: .venv/bin/python -m playwright install chromium
+start.bat scan -c phones -q "iphone 13" --browser
 ```
 
 Полезные флаги `scan`:
