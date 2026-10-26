@@ -1,0 +1,231 @@
+"""Меню в терминале: всё выбирается цифрами, команды запоминать не нужно.
+
+Открывается командой `python -m avito_flip` без аргументов или скриптами start.bat / start.sh.
+Ответы превращаются в обычную команду (scan, analyze, watch, demo), её же меню и показывает —
+чтобы потом можно было запускать без вопросов.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from collections.abc import Callable
+
+from .config import Settings, load_settings
+
+REGIONS = [
+    ("Москва", "moskva"),
+    ("Санкт-Петербург", "sankt-peterburg"),
+    ("Вся Россия", "all"),
+    ("Екатеринбург", "ekaterinburg"),
+    ("Новосибирск", "novosibirsk"),
+    ("Казань", "kazan"),
+    ("Нижний Новгород", "nizhniy_novgorod"),
+    ("Краснодар", "krasnodar"),
+]
+
+_YES = {"д", "да", "y", "yes", "1", "+"}
+_NO = {"н", "нет", "n", "no", "0", "-"}
+
+
+def parse_amount(text: str) -> int | None:
+    """«40000», «40 000», «40к», «1.5к» -> рубли; пустая строка -> None."""
+    t = text.strip().lower().replace(" ", "").replace(" ", "").replace(",", ".").rstrip("₽р")
+    if not t:
+        return None
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(к|k|т|тыс)?", t)
+    if not m:
+        raise ValueError(text)
+    value = float(m.group(1)) * (1000 if m.group(2) else 1)
+    return int(round(value))
+
+
+def command_line(argv: list[str]) -> str:
+    # start.bat / start.sh сообщают, как их вызывать; иначе — запуск модулем.
+    prefix = os.environ.get("AVITO_FLIP_CMD") or "python -m avito_flip"
+    parts = [f'"{a}"' if (" " in a or not a) else a for a in argv]
+    return prefix + " " + " ".join(parts)
+
+
+class Menu:
+    def __init__(self, settings: Settings, run: Callable[[list[str]], int], ask: Callable[[str], str] = input,
+                 say: Callable[[str], None] = print):
+        self.s, self.run, self._ask, self.say = settings, run, ask, say
+
+    # ------------------------------------------------------------ вопросы
+
+    def ask(self, prompt: str, default: str = "") -> str:
+        suffix = f" [{default}]" if default else ""
+        return self._ask(f"{prompt}{suffix}: ").strip() or default
+
+    def choose(self, title: str, options: list[str], default: int = 1) -> int:
+        """Номер варианта, начиная с 1."""
+        self.say(f"\n{title}")
+        for i, opt in enumerate(options, 1):
+            self.say(f"  {i}. {opt}")
+        while True:
+            answer = self.ask("Номер", str(default))
+            if answer.isdigit() and 1 <= int(answer) <= len(options):
+                return int(answer)
+            self.say(f"Введите число от 1 до {len(options)}")
+
+    def amount(self, prompt: str, default: int | None = None) -> int | None:
+        while True:
+            answer = self.ask(prompt, str(default) if default is not None else "")
+            try:
+                return parse_amount(answer)
+            except ValueError:
+                self.say("Введите сумму числом, например 40000 или 40к (Enter — пропустить)")
+
+    def yes(self, prompt: str, default: bool = True) -> bool:
+        while True:
+            answer = self.ask(f"{prompt} (да/нет)", "да" if default else "нет").lower()
+            if answer in _YES:
+                return True
+            if answer in _NO:
+                return False
+            self.say("Ответьте «да» или «нет»")
+
+    # ------------------------------------------------------------ общие шаги
+
+    def category(self) -> str:
+        keys = list(self.s.categories)
+        options = []
+        for key in keys:
+            c = self.s.categories[key]
+            hint = f" — например: {', '.join(c.queries[:3])}" if c.queries else ""
+            options.append(f"{c.title}{hint}")
+        return keys[self.choose("Категория:", options) - 1]
+
+    def queries(self, category_key: str) -> list[str]:
+        c = self.s.categories[category_key]
+        if c.queries:
+            prompt = f"Что ищем? Несколько запросов — через запятую. Enter — {', '.join(c.queries)}"
+        else:
+            prompt = "Что ищем? (например: iphone 13; несколько — через запятую)"
+        while True:
+            answer = self.ask(prompt)
+            found = [q.strip() for q in answer.split(",") if q.strip()]
+            if found or c.queries:
+                return found
+            self.say("В этой категории нет запросов по умолчанию — введите, что искать")
+
+    def region(self) -> str:
+        options = [f"{name} ({slug})" for name, slug in REGIONS]
+        slugs = [slug for _, slug in REGIONS]
+        if self.s.region not in slugs:
+            options.insert(0, f"Из настроек ({self.s.region})")
+            slugs.insert(0, self.s.region)
+        options.append("Другой город — ввести, как в адресе Авито (например rostov-na-donu)")
+        n = self.choose("Где покупаем:", options, default=slugs.index(self.s.region) + 1)
+        if n <= len(slugs):
+            return slugs[n - 1]
+        while True:
+            slug = self.ask("Город латиницей, как в адресе avito.ru/<город>/...").lower()
+            if re.fullmatch(r"[a-z0-9_-]+", slug):
+                return slug
+            self.say("Только латинские буквы, цифры, «-» и «_»")
+
+    def execute(self, argv: list[str]) -> int:
+        self.say(f"\nКоманда для повторного запуска без вопросов:\n  {command_line(argv)}\n")
+        try:
+            return self.run(argv)
+        except KeyboardInterrupt:
+            self.say("\nПрервано.")
+            return 130
+        except SystemExit as e:  # argparse при неверных аргументах
+            return int(e.code or 0)
+
+    # ------------------------------------------------------------ действия
+
+    def scan(self) -> int:
+        key = self.category()
+        queries = self.queries(key)
+        budget = self.amount("Бюджет: максимальная цена покупки, ₽ (Enter — без ограничения)")
+        region = self.region()
+        min_profit = self.amount("Минимальная прибыль с одной сделки, ₽", int(self.s.economics.min_profit))
+        open_report = self.yes("Открыть отчёт в браузере после поиска?")
+        argv = ["scan", "-c", key]
+        for q in queries:
+            argv += ["-q", q]
+        if budget:
+            argv += ["--max-price", str(budget)]
+        if region != self.s.region:
+            argv += ["--region", region]
+        if min_profit is not None and min_profit != int(self.s.economics.min_profit):
+            argv += ["--min-profit", str(min_profit)]
+        if open_report:
+            argv.append("--open")
+        return self.execute(argv)
+
+    def analyze(self) -> int:
+        while True:
+            url = self.ask("Ссылка на объявление Авито")
+            if re.match(r"https?://(?:www\.|m\.)?avito\.ru/\S+", url):
+                break
+            self.say("Нужна ссылка вида https://www.avito.ru/moskva/telefony/..._1234567890")
+        argv = ["analyze", url]
+        if self.yes("Открыть отчёт в браузере?"):
+            argv.append("--open")
+        return self.execute(argv)
+
+    def watch(self) -> int:
+        key = self.category()
+        queries = self.queries(key)
+        budget = self.amount("Бюджет: максимальная цена покупки, ₽ (Enter — без ограничения)")
+        region = self.region()
+        every = self.amount("Как часто проверять, минут", 15) or 15
+        argv = ["watch", "-c", key]
+        for q in queries:
+            argv += ["-q", q]
+        if budget:
+            argv += ["--max-price", str(budget)]
+        if region != self.s.region:
+            argv += ["--region", region]
+        argv += ["--every", str(max(every, 5))]
+        if self.s.telegram.get("token") and self.s.telegram.get("chat_id"):
+            if self.yes("Присылать выгодные объявления в Telegram?"):
+                argv.append("--telegram")
+        else:
+            self.say("Подсказка: чтобы получать уведомления в Telegram, впишите telegram.token и "
+                     "telegram.chat_id в config.yaml.")
+        self.say("Остановить наблюдение — Ctrl+C.")
+        return self.execute(argv)
+
+    def demo(self) -> int:
+        argv = ["demo"]
+        if self.yes("Открыть отчёт в браузере?"):
+            argv.append("--open")
+        return self.execute(argv)
+
+    def loop(self) -> int:
+        actions = [
+            ("Найти выгодные объявления для перепродажи", self.scan),
+            ("Оценить объявление по ссылке", self.analyze),
+            ("Следить за новыми объявлениями (проверка каждые N минут)", self.watch),
+            ("Демо на вымышленных данных (без интернета)", self.demo),
+            ("Выход", None),
+        ]
+        self.say("\n=== Поиск товаров на Авито для перепродажи ===")
+        self.say(f"Регион по умолчанию: {self.s.region}; минимальная прибыль: {int(self.s.economics.min_profit)} ₽. "
+                 "Поменять можно в config.yaml.")
+        while True:
+            try:
+                n = self.choose("Что сделать?", [title for title, _ in actions])
+                action = actions[n - 1][1]
+                if action is None:
+                    return 0
+                action()
+                self.ask("\nEnter — вернуться в меню")
+            except (KeyboardInterrupt, EOFError):
+                self.say("\nВыход.")
+                return 0
+
+
+def run_menu(run: Callable[[list[str]], int], config: str | None = None) -> int:
+    try:
+        settings = load_settings(config)
+    except (OSError, ValueError) as e:
+        print(f"Ошибка настроек: {e}")
+        return 2
+    return Menu(settings, run).loop()
