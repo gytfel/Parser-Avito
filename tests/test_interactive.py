@@ -150,6 +150,16 @@ def test_blocked_scan_not_retried_when_declined_or_install_fails():
     assert len(calls) == 1
 
 
+def test_blocked_even_in_browser_explains_ip_block():
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "", "1", "1", "", "", "", "", "нет", "", "5"]
+    calls, said, _ = blocked_menu(answers, [EXIT_BLOCKED, EXIT_BLOCKED, EXIT_BLOCKED, EXIT_BLOCKED])
+    assert calls[1][-1] == "--browser"
+    assert "--browser" not in calls[2]  # браузер не помог — режим не запоминаем
+    assert any("раздайте интернет с телефона" in s for s in said)
+
+
 def test_browser_from_config_is_used_right_away():
     calls, said, _ = blocked_menu(["4", "нет", "", "2", "https://www.avito.ru/a/b_1234567", "нет", "", "5"], [0, 0],
                                   browser=True)
