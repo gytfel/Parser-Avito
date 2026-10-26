@@ -17,6 +17,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from . import __version__
 from .config import Settings, enable_browser_mode, load_settings
 from .fetcher import EXIT_BLOCKED, playwright_hint
 
@@ -309,7 +310,7 @@ class Menu:
             ("Демо на вымышленных данных (без интернета)", self.demo),
             ("Выход", None),
         ]
-        self.say("\n=== Поиск товаров на Авито для перепродажи ===")
+        self.say(f"\n=== Поиск товаров на Авито для перепродажи · версия {__version__} ===")
         self.say(f"Регион по умолчанию: {self.s.region}; минимальная прибыль: {int(self.s.economics.min_profit)} ₽"
                  + ("; поиск через браузер" if self.browser else "") + ". Поменять можно в config.yaml.")
         while True:

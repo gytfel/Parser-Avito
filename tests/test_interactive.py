@@ -181,3 +181,10 @@ def test_session_only_browser_mode_does_not_touch_config(tmp_path):
     cfg = tmp_path / "config.yaml"
     calls, said, _ = blocked_menu(answers, [EXIT_BLOCKED, 0], config_path=cfg)
     assert calls[-1][-1] == "--browser" and not cfg.exists()
+
+
+def test_menu_header_shows_version():
+    from avito_flip import __version__
+
+    _, said = run_menu(["5"])
+    assert any(f"версия {__version__}" in s for s in said)
