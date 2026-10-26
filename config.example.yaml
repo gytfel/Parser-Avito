@@ -18,7 +18,7 @@ network:
   delay_min: 5                 # пауза между запросами, сек — не уменьшайте сильно, иначе Авито заблокирует IP
   delay_max: 10
   proxy: null                  # http://user:pass@host:port
-  browser: false               # true — через Chromium (pip install playwright && playwright install chromium)
+  browser: false               # true — всегда искать через браузер Chrome/Edge (нужен Playwright, см. README)
 
 sources:
   youla:

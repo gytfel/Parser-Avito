@@ -71,7 +71,8 @@ class Scanner:
 
     # ------------------------------------------------------------------ сбор
 
-    def _collect(self, category: Category, query: str, warnings: list[str]) -> tuple[dict[str, Listing], set[str]]:
+    def _collect(self, category: Category, query: str, warnings: list[str],
+                 blocked: list[BlockedError]) -> tuple[dict[str, Listing], set[str]]:
         s = self.settings
         listings: dict[str, Listing] = {}
         buyable: set[str] = set()
@@ -84,6 +85,7 @@ class Scanner:
 
         for name, src in self.sources.items():
             title = getattr(src, "title", name)
+            before = len(listings)
             try:
                 if name == "avito":
                     add(src.search(query, path=category.avito_path, region=s.region, pages=s.pages),
@@ -94,7 +96,11 @@ class Scanner:
                 else:
                     pages = s.source(name).pages or 1
                     add(src.search(query, pages=pages), name in s.buy_sources)
+                if len(listings) == before and name != "csv":
+                    warnings.append(f"{title}: объявлений не найдено. Если на сайте они есть, запустите с -v "
+                                    "и пришлите разработчику файл .cache/debug/*_empty.html")
             except BlockedError as e:
+                blocked.append(e)
                 warnings.append(f"{title}: доступ ограничен. {e}")
             except FetchError as e:
                 warnings.append(f"{title}: {e}")
@@ -108,13 +114,17 @@ class Scanner:
              details: int | None = None, extra: list[Listing] | None = None) -> ScanResult:
         s = self.settings
         warnings: list[str] = []
+        blocked: list[BlockedError] = []
         started = datetime.now()
-        listings, buyable = self._collect(category, query, warnings)
+        listings, buyable = self._collect(category, query, warnings, blocked)
         for x in extra or []:
             listings[x.uid] = x
             buyable.add(x.uid)
         if not listings and warnings:
-            raise FetchError("Не удалось получить объявления:\n" + "\n".join(warnings))
+            message = "Не удалось получить объявления:\n" + "\n".join(warnings)
+            if blocked:
+                raise BlockedError(message, blocked[0].status, blocked[0].reason)
+            raise FetchError(message)
 
         excluded = 0
         items: dict[str, Item] = {}

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from avito_flip.config import load_settings
@@ -99,3 +101,90 @@ def test_main_without_args_opens_menu(monkeypatch):
     monkeypatch.setattr(interactive, "run_menu", lambda run, config=None: opened.append(run) or 0)
     monkeypatch.setattr(cli.sys, "argv", ["avito_flip"])
     assert cli.main() == 0 and opened == [cli.main]
+
+
+def blocked_menu(answers, results, installed=True, browser=False, config_path=None):
+    import tempfile
+
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    s = load_settings()
+    s.network.browser = browser
+    calls, said, feed = [], [], iter(answers)
+    codes = iter(results)
+
+    def run(argv):
+        calls.append(argv)
+        return next(codes, 0)
+
+    def ask(prompt):
+        said.append(prompt)
+        try:
+            return next(feed)
+        except StopIteration:
+            raise EOFError from None
+
+    config_path = config_path or Path(tempfile.mkdtemp()) / "config.yaml"
+    menu = Menu(s, run=run, ask=ask, say=said.append, installer=lambda m: installed, config_path=config_path)
+    menu.loop()
+    return calls, said, EXIT_BLOCKED
+
+
+def test_blocked_scan_is_retried_in_browser_and_mode_is_kept(tmp_path):
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    # поиск -> блок -> «да» через браузер -> успех -> «да» сохранить; затем поиск уже сразу через браузер
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "да", "", "1", "1", "", "", "", "", "нет", "", "5"]
+    cfg = tmp_path / "config.yaml"
+    calls, said, _ = blocked_menu(answers, [EXIT_BLOCKED, 0, 0], config_path=cfg)
+    assert load_settings(cfg).network.browser is True
+    assert calls == [
+        ["scan", "-c", "phones", "-q", "iphone 13"],
+        ["scan", "-c", "phones", "-q", "iphone 13", "--browser"],
+        ["scan", "-c", "phones", "--browser"],
+    ]
+    assert any("VPN" in s for s in said)
+
+
+def test_blocked_scan_not_retried_when_declined_or_install_fails():
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "нет", "", "5"]
+    calls, _, _ = blocked_menu(answers, [EXIT_BLOCKED])
+    assert len(calls) == 1
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "", "5"]
+    calls, _, _ = blocked_menu(answers, [EXIT_BLOCKED], installed=False)
+    assert len(calls) == 1
+
+
+def test_blocked_even_in_browser_explains_ip_block():
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "", "1", "1", "", "", "", "", "нет", "", "5"]
+    calls, said, _ = blocked_menu(answers, [EXIT_BLOCKED, EXIT_BLOCKED, EXIT_BLOCKED, EXIT_BLOCKED])
+    assert calls[1][-1] == "--browser"
+    assert "--browser" not in calls[2]  # браузер не помог — режим не запоминаем
+    assert any("раздайте интернет с телефона" in s for s in said)
+
+
+def test_browser_from_config_is_used_right_away():
+    calls, said, _ = blocked_menu(["4", "нет", "", "2", "https://www.avito.ru/a/b_1234567", "нет", "", "5"], [0, 0],
+                                  browser=True)
+    assert calls == [["demo"], ["analyze", "https://www.avito.ru/a/b_1234567", "--browser"]]  # демо — без сети
+    assert "поиск через браузер" in said[1]
+
+
+def test_session_only_browser_mode_does_not_touch_config(tmp_path):
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "нет", "", "5"]
+    cfg = tmp_path / "config.yaml"
+    calls, said, _ = blocked_menu(answers, [EXIT_BLOCKED, 0], config_path=cfg)
+    assert calls[-1][-1] == "--browser" and not cfg.exists()
+
+
+def test_menu_header_shows_version():
+    from avito_flip import __version__
+
+    _, said = run_menu(["5"])
+    assert any(f"версия {__version__}" in s for s in said)

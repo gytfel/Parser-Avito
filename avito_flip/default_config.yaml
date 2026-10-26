@@ -41,8 +41,10 @@ network:
   retries: 2
   proxy: null             # http://user:pass@host:port — свой прокси, если Авито блокирует IP
   impersonate: true       # использовать curl_cffi (TLS-отпечаток Chrome), если установлен
-  browser: false          # грузить страницы через Playwright/Chromium (pip install playwright)
-  headless: true
+  browser: false          # искать через настоящий браузер (Chrome/Edge через Playwright) — реже блокируют
+  headless: false         # окно браузера видно: если сайт попросит проверку «я не робот», её можно пройти
+  browser_channel: null   # chrome, msedge или chromium; null — первый найденный на компьютере
+  captcha_wait: 180       # сколько секунд ждать прохождения проверки в окне браузера
   cache_ttl_minutes: 60   # повторный запуск в течение часа не нагружает сайт
   cache_dir: .cache
   cookies: null           # строка Cookie из браузера (DevTools → Network), если Авито просит капчу

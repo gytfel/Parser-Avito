@@ -198,12 +198,18 @@ class AvitoSource(Source):
         region = region or self.region
         results: dict[str, Listing] = {}
         referer = AVITO + "/"
+        if hasattr(self.fetcher, "warm_up"):
+            self.fetcher.warm_up(AVITO + "/")
         for page in range(1, pages + 1):
             url = build_search_url(region, path, query, page, self.sort, price_min, price_max)
             self.log(f"Авито [{region}] стр. {page}: {url}")
             html = self.fetcher.get(url, referer=referer)
             referer = url
             listings = parse_search_page(html)
+            if page == 1 and not listings and hasattr(self.fetcher, "save_debug"):
+                # Пустая выдача: либо по запросу ничего нет, либо Авито поменял вёрстку — страницу сохраняем.
+                saved = self.fetcher.save_debug("avito_empty.html", html)
+                self.log(f"Авито: на странице не найдено объявлений, она сохранена в {saved}")
             fresh = [x for x in listings if x.id not in results]
             for x in fresh:
                 x.location = x.location or region

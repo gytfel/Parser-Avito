@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import ConfigError, Settings, SourceConfig, load_settings
-from .fetcher import FetchError
+from .fetcher import EXIT_BLOCKED, BlockedError, FetchError
 from .report import make_console, print_result, save_csv, save_html, save_json
 from .scanner import Scanner
 
@@ -134,12 +134,18 @@ def _save_reports(results, a, console, default_name: str) -> None:
         webbrowser.open(html_path.resolve().as_uri())
 
 
+# Сообщения, которые видны и без -v: о них пользователь должен знать (например, пройти проверку в браузере).
+_ALWAYS_SHOWN = ("Открываю", "Слишком", "Ошибка", "Сайт просит", "Проверка пройдена", "Авито: на странице",
+                 "Юла: на странице")
+
+
 def _logger(console, verbose: bool):
     def log(msg: str) -> None:
-        if not verbose and not msg.startswith(("Открываю", "Слишком", "Ошибка")):
+        if not verbose and not msg.startswith(_ALWAYS_SHOWN):
             return
         if console:
-            console.print(f"[dim]{escape(msg)}[/]")
+            style = "yellow" if msg.startswith("Сайт просит") else "dim"
+            console.print(f"[{style}]{escape(msg)}[/]")
         else:
             print(msg, file=sys.stderr)
     return log
@@ -160,12 +166,18 @@ def cmd_scan(a, s: Settings, console) -> int:
         return 2
     scanner = Scanner(s, log=_logger(console, a.verbose), use_cache=not a.no_cache)
     results = []
+    blocked = False
     try:
         for q in queries:
             if console:
                 console.print(f"[bold]Ищу «{escape(q)}»[/] в «{escape(category.title)}» ({escape(s.region)})…")
             try:
                 result = scanner.scan(category, q, price_min=a.min_price, price_max=a.max_price)
+            except BlockedError as e:
+                # Остальные запросы тоже упрутся в блокировку — не нагружаем сайт зря.
+                print(f"Ошибка: {e}", file=sys.stderr)
+                blocked = True
+                break
             except FetchError as e:
                 print(f"Ошибка: {e}", file=sys.stderr)
                 continue
@@ -174,7 +186,7 @@ def cmd_scan(a, s: Settings, console) -> int:
     finally:
         scanner.close()
     if not results:
-        return 1
+        return EXIT_BLOCKED if blocked else 1
     a._reports_dir = s.reports_dir
     _save_reports(results, a, console, f"{category.key}_{_slug(queries[0])}")
     return 0
@@ -187,7 +199,7 @@ def cmd_analyze(a, s: Settings, console) -> int:
         deal, result = scanner.analyze_url(a.url, category, a.query, details=a.details or 0)
     except FetchError as e:
         print(f"Ошибка: {e}", file=sys.stderr)
-        return 1
+        return EXIT_BLOCKED if isinstance(e, BlockedError) else 1
     finally:
         scanner.close()
     result.deals = [deal]
