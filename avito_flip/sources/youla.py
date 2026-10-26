@@ -144,7 +144,11 @@ class YoulaSource(Source):
         for page in range(1, pages + 1):
             url = build_search_url(self.city, query, page)
             self.log(f"Юла [{self.city}] стр. {page}: {url}")
-            listings = parse_search_page(self.fetcher.get(url, referer=YOULA + "/"), self.price_divisor)
+            html = self.fetcher.get(url, referer=YOULA + "/")
+            listings = parse_search_page(html, self.price_divisor)
+            if page == 1 and not listings and hasattr(self.fetcher, "save_debug"):
+                saved = self.fetcher.save_debug("youla_empty.html", html)
+                self.log(f"Юла: на странице не найдено объявлений, она сохранена в {saved}")
             fresh = [x for x in listings if x.id not in results]
             for x in fresh:
                 x.location = x.location or self.city

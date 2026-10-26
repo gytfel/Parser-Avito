@@ -7,11 +7,18 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import os
 import re
+import shutil
+import subprocess
+import sys
 from collections.abc import Callable
+from pathlib import Path
 
 from .config import Settings, load_settings
+from .fetcher import EXIT_BLOCKED, playwright_hint
 
 REGIONS = [
     ("Москва", "moskva"),
@@ -23,6 +30,9 @@ REGIONS = [
     ("Нижний Новгород", "nizhniy_novgorod"),
     ("Краснодар", "krasnodar"),
 ]
+
+# Команды, которые ходят на сайт: им при блокировке можно добавить --browser.
+_ONLINE_COMMANDS = {"scan", "analyze", "watch"}
 
 _YES = {"д", "да", "y", "yes", "1", "+"}
 _NO = {"н", "нет", "n", "no", "0", "-"}
@@ -47,10 +57,60 @@ def command_line(argv: list[str]) -> str:
     return prefix + " " + " ".join(parts)
 
 
+def playwright_installed() -> bool:
+    return importlib.util.find_spec("playwright") is not None
+
+
+def system_browser_found() -> bool:
+    """Есть ли Chrome или Edge, которые Playwright может запустить без скачивания своего Chromium."""
+    if sys.platform == "win32":
+        return True  # Microsoft Edge встроен в Windows 10/11
+    if sys.platform == "darwin":
+        return any(Path(p).exists() for p in ("/Applications/Google Chrome.app", "/Applications/Microsoft Edge.app"))
+    return any(shutil.which(b) for b in ("google-chrome", "google-chrome-stable", "microsoft-edge-stable"))
+
+
+def bundled_chromium_found() -> bool:
+    custom = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if custom:
+        root = Path(custom)
+    elif sys.platform == "win32":
+        root = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "ms-playwright"
+    elif sys.platform == "darwin":
+        root = Path.home() / "Library" / "Caches" / "ms-playwright"
+    else:
+        root = Path.home() / ".cache" / "ms-playwright"
+    return root.is_dir() and any(p.name.startswith("chromium") for p in root.iterdir())
+
+
+def install_playwright(menu: Menu) -> bool:
+    """Поставить Playwright (и при необходимости Chromium) в тот же Python, что запускает парсер."""
+    if not playwright_installed():
+        if not menu.yes("Для этого нужно один раз установить Playwright (~40 МБ). Установить?"):
+            return False
+        menu.say("Устанавливаю Playwright…")
+        cmd = [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "playwright"]
+        if subprocess.run(cmd).returncode != 0:
+            menu.say("Не удалось установить Playwright.\n" + playwright_hint())
+            return False
+        importlib.invalidate_caches()
+    if not system_browser_found() and not bundled_chromium_found():
+        menu.say("На компьютере не найден Google Chrome или Microsoft Edge.")
+        if not menu.yes("Скачать браузер Chromium для парсера (~150 МБ, один раз)?"):
+            return False
+        if subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"]).returncode != 0:
+            menu.say("Не удалось скачать Chromium. Установите Google Chrome и попробуйте снова.")
+            return False
+    return True
+
+
 class Menu:
     def __init__(self, settings: Settings, run: Callable[[list[str]], int], ask: Callable[[str], str] = input,
-                 say: Callable[[str], None] = print):
+                 say: Callable[[str], None] = print, installer: Callable[[Menu], bool] = install_playwright):
         self.s, self.run, self._ask, self.say = settings, run, ask, say
+        self.install = installer
+        # После удачного поиска через браузер остальные действия сеанса тоже идут через него.
+        self.browser = settings.network.browser
 
     # ------------------------------------------------------------ вопросы
 
@@ -126,8 +186,7 @@ class Menu:
                 return slug
             self.say("Только латинские буквы, цифры, «-» и «_»")
 
-    def execute(self, argv: list[str]) -> int:
-        self.say(f"\nКоманда для повторного запуска без вопросов:\n  {command_line(argv)}\n")
+    def _run(self, argv: list[str]) -> int:
         try:
             return self.run(argv)
         except KeyboardInterrupt:
@@ -135,6 +194,31 @@ class Menu:
             return 130
         except SystemExit as e:  # argparse при неверных аргументах
             return int(e.code or 0)
+
+    def execute(self, argv: list[str]) -> int:
+        online = argv[0] in _ONLINE_COMMANDS
+        if online and self.browser and "--browser" not in argv:
+            argv = [*argv, "--browser"]
+        self.say(f"\nКоманда для повторного запуска без вопросов:\n  {command_line(argv)}\n")
+        code = self._run(argv)
+        if code != EXIT_BLOCKED or not online or "--browser" in argv:
+            return code
+        self.say(
+            "\nАвито не пустил обычные запросы. Можно искать через настоящий браузер (Chrome или Edge): "
+            "откроется его окно, страницы будут загружаться в нём. Если сайт попросит проверку "
+            "«я не робот», пройдите её в этом окне — парсер подождёт и продолжит сам.\n"
+            "Если на компьютере включён VPN, сначала лучше выключить его."
+        )
+        if not (self.yes("Попробовать через браузер?") and self.install(self)):
+            return code
+        argv = [*argv, "--browser"]
+        self.say(f"\nКоманда для повторного запуска без вопросов:\n  {command_line(argv)}\n")
+        code = self._run(argv)
+        if code != EXIT_BLOCKED:
+            self.browser = True
+            self.say("Дальше в этом сеансе поиск идёт через браузер. Чтобы так было всегда, "
+                     "впишите в config.yaml:\n  network:\n    browser: true")
+        return code
 
     # ------------------------------------------------------------ действия
 
@@ -207,8 +291,8 @@ class Menu:
             ("Выход", None),
         ]
         self.say("\n=== Поиск товаров на Авито для перепродажи ===")
-        self.say(f"Регион по умолчанию: {self.s.region}; минимальная прибыль: {int(self.s.economics.min_profit)} ₽. "
-                 "Поменять можно в config.yaml.")
+        self.say(f"Регион по умолчанию: {self.s.region}; минимальная прибыль: {int(self.s.economics.min_profit)} ₽"
+                 + ("; поиск через браузер" if self.browser else "") + ". Поменять можно в config.yaml.")
         while True:
             try:
                 n = self.choose("Что сделать?", [title for title, _ in actions])

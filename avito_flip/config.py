@@ -40,7 +40,9 @@ class Network:
     proxy: str | None = None
     impersonate: bool = True  # curl_cffi с отпечатком Chrome, если установлен
     browser: bool = False  # загрузка страниц через Playwright (медленнее, но реже блокируют)
-    headless: bool = True
+    headless: bool = False  # окно браузера видно — при проверке «я не робот» её можно пройти вручную
+    browser_channel: str | None = None  # chrome, msedge или chromium; по умолчанию — первый найденный
+    captcha_wait: float = 180  # сколько секунд ждать, пока проверку проходят в окне браузера
     cache_ttl_minutes: float = 60
     cache_dir: str = ".cache"
     cookies: str | None = None  # строка Cookie из браузера, если Авито просит капчу

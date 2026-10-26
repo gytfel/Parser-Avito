@@ -99,3 +99,59 @@ def test_main_without_args_opens_menu(monkeypatch):
     monkeypatch.setattr(interactive, "run_menu", lambda run, config=None: opened.append(run) or 0)
     monkeypatch.setattr(cli.sys, "argv", ["avito_flip"])
     assert cli.main() == 0 and opened == [cli.main]
+
+
+def blocked_menu(answers, results, installed=True, browser=False):
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    s = load_settings()
+    s.network.browser = browser
+    calls, said, feed = [], [], iter(answers)
+    codes = iter(results)
+
+    def run(argv):
+        calls.append(argv)
+        return next(codes, 0)
+
+    def ask(prompt):
+        said.append(prompt)
+        try:
+            return next(feed)
+        except StopIteration:
+            raise EOFError from None
+
+    menu = Menu(s, run=run, ask=ask, say=said.append, installer=lambda m: installed)
+    menu.loop()
+    return calls, said, EXIT_BLOCKED
+
+
+def test_blocked_scan_is_retried_in_browser_and_mode_is_kept():
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    # поиск -> блок -> «да» через браузер -> успех; затем ещё один поиск уже сразу через браузер
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "", "1", "1", "", "", "", "", "нет", "", "5"]
+    calls, said, _ = blocked_menu(answers, [EXIT_BLOCKED, 0, 0])
+    assert calls == [
+        ["scan", "-c", "phones", "-q", "iphone 13"],
+        ["scan", "-c", "phones", "-q", "iphone 13", "--browser"],
+        ["scan", "-c", "phones", "--browser"],
+    ]
+    assert any("VPN" in s for s in said)
+
+
+def test_blocked_scan_not_retried_when_declined_or_install_fails():
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "нет", "", "5"]
+    calls, _, _ = blocked_menu(answers, [EXIT_BLOCKED])
+    assert len(calls) == 1
+    answers = ["1", "1", "iphone 13", "", "", "", "нет", "да", "", "5"]
+    calls, _, _ = blocked_menu(answers, [EXIT_BLOCKED], installed=False)
+    assert len(calls) == 1
+
+
+def test_browser_from_config_is_used_right_away():
+    calls, said, _ = blocked_menu(["4", "нет", "", "2", "https://www.avito.ru/a/b_1234567", "нет", "", "5"], [0, 0],
+                                  browser=True)
+    assert calls == [["demo"], ["analyze", "https://www.avito.ru/a/b_1234567", "--browser"]]  # демо — без сети
+    assert "поиск через браузер" in said[1]

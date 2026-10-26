@@ -76,7 +76,7 @@ class FakeBackend:
 
 
 def fast_net(tmp_path, **kw):
-    return Network(delay_min=0, delay_max=0, retries=1, cache_dir=str(tmp_path), **kw)
+    return Network(**{"delay_min": 0, "delay_max": 0, "retries": 1, "cache_dir": str(tmp_path), **kw})
 
 
 def test_fetcher_caches_and_raises_on_block(tmp_path, monkeypatch):
@@ -151,3 +151,66 @@ def test_console_escapes_listing_text():
     console = Console(record=True, width=200)
     print_result(r, console, show_all=True)
     assert "[идеал] [/b]" in console.export_text()
+
+
+def test_block_reason_is_shown(tmp_path, monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    f = Fetcher(fast_net(tmp_path, retries=0))
+    f._backend = FakeBackend([(403, "<html><title>Доступ ограничен: проблема с IP</title></html>")])
+    with pytest.raises(BlockedError) as e:
+        f.get("https://www.avito.ru/kazan/telefony?q=iphone")
+    assert e.value.status == 403 and e.value.reason == "HTTP 403, «Доступ ограничен: проблема с IP»"
+    assert "VPN" in str(e.value) and "--browser" in str(e.value)
+
+
+def test_warm_up_opens_home_page_once(tmp_path, monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda s: None)
+    f = Fetcher(fast_net(tmp_path, retries=0))
+    f._backend = FakeBackend([(200, "home"), (200, "<html>page</html>")])
+    f.warm_up("https://www.avito.ru/")
+    f.warm_up("https://www.avito.ru/")
+    assert f._backend.calls == 1
+    assert f.get("https://www.avito.ru/x") == "<html>page</html>"
+    # главная с ошибкой сервера не мешает поиску, а блокировка — сразу видна
+    g = Fetcher(fast_net(tmp_path, retries=0))
+    g._backend = FakeBackend([(500, "")])
+    g.warm_up("https://www.avito.ru/")
+    h = Fetcher(fast_net(tmp_path, retries=0))
+    h._backend = FakeBackend([(429, "")])
+    with pytest.raises(BlockedError):
+        h.warm_up("https://www.avito.ru/")
+
+
+class BlockedSource(DemoSource):
+    def search(self, *args, **kwargs):
+        raise BlockedError("https://www.avito.ru/...\nОтвет сайта: HTTP 403", 403, "HTTP 403")
+
+
+def test_scan_raises_blocked_when_nothing_loaded():
+    s = load_settings()
+    scanner = Scanner(s, sources={"avito": BlockedSource("avito", "Авито", []), "youla": DemoSource("youla", "Юла", [])})
+    with pytest.raises(BlockedError) as e:
+        scanner.scan(s.category("phones"), "iphone 13")
+    assert e.value.status == 403
+    assert "Авито: доступ ограничен" in str(e.value) and "Юла: объявлений не найдено" in str(e.value)
+
+
+def test_cli_returns_exit_blocked(monkeypatch, tmp_path, capsys):
+    import avito_flip.cli as cli
+    from avito_flip.fetcher import EXIT_BLOCKED
+
+    class FakeScanner:
+        def __init__(self, *a, **kw):
+            self.calls = 0
+
+        def scan(self, *a, **kw):
+            raise BlockedError("заблокировано", 429, "HTTP 429")
+
+        def close(self):
+            pass
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "Scanner", FakeScanner)
+    assert cli.main(["scan", "-c", "phones"]) == EXIT_BLOCKED
+    # после блокировки остальные запросы категории не отправляются
+    assert capsys.readouterr().err.count("заблокировано") == 1
